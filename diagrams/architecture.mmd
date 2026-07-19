@@ -1,0 +1,81 @@
+%% PawPal+ Project 4 — system data/control flow (Streamlit UI + Scheduler + AI agent).
+%% Class structure lives in uml_final.mmd; this diagram shows FLOW, not classes.
+flowchart TD
+    %% ---------------- User + domain + scheduler ----------------
+    subgraph UI["Streamlit UI - app.py"]
+        U1["User adds / edits / deletes a task"]
+        UMAN["Manual fix:<br/>pet.edit_task / pet.delete_task"]
+        UBTN["Button: Resolve conflicts with AI"]
+    end
+
+    subgraph DOM["Domain objects - pawpal_system.py"]
+        D1["Owner / Pet / Task<br/>owner.all_tasks()"]
+    end
+
+    subgraph SCHED["Scheduler - pawpal_system.py"]
+        S1["filter_tasks(pet_name, status)"]
+        S2["sort_by_time"]
+        S3["generate_schedule:<br/>filter to pending → occurs_on(day)<br/>→ time-budget fit → sort_by_time"]
+        S4["find_conflicts<br/>(pending tasks for the day)"]
+    end
+
+    U1 --> D1
+    D1 --> S1
+    S1 --> S2
+    S2 --> S3
+    S3 --> S4
+    S4 --> Q1{"Conflicts found?"}
+    Q1 -->|No| OK["No conflicts<br/>show daily plan"]
+    Q1 -->|Yes| BR{"How to resolve?"}
+    BR -->|Manual| UMAN
+    BR -->|AI agent| UBTN
+    UMAN --> S4
+    UBTN --> A0
+
+    %% ---------------- AI agent loop ----------------
+    subgraph AGENT["AI agent - ai_agent.py"]
+        A0["resolve_conflicts(owner, day,<br/>max_attempts=2, call_model)"]
+        A1["_day_conflicts:<br/>filter_tasks(status=pending)<br/>+ occurs_on(day) → find_conflicts"]
+        A2{"Unresolved conflict left?<br/>(within safety cap)"}
+        R1["RETRIEVE:<br/>find_relevant_tips(conflict, care_tips.md)<br/>keyword overlap on task names"]
+        R2["PLAN:<br/>_build_prompt(conflict, tips)"]
+        R3["ACT:<br/>call_gemini_model(prompt)<br/>gemini-3.5-flash"]
+        R4{"_parse_hhmm valid?"}
+        R5["source = ai<br/>new HH:MM start time"]
+        R6["FALLBACK - source = fallback<br/>first end + 15 min<br/>(_FALLBACK_GAP_MINUTES)"]
+        R7["pet.edit_task(second.task_id,<br/>start_time=new_time)"]
+        R8{"_pair_still_conflicts?"}
+        R9{"attempts remaining?<br/>(max_attempts = 2)"}
+        RDONE["record result:<br/>action, source, resolved=True"]
+        RGIVE["gave_up.add(pair)<br/>record resolved=False"]
+        ARES["return results:<br/>list of dicts<br/>{conflict, action, source, resolved}"]
+    end
+
+    A0 --> A1
+    A1 --> A2
+    A2 -->|No| ARES
+    A2 -->|Yes| R1
+    R1 --> R2
+    R2 --> R3
+    R3 --> R4
+    R4 -->|Yes| R5
+    R4 -->|"No / API error"| R6
+    R5 --> R7
+    R6 --> R7
+    R7 --> R8
+    R8 -->|Resolved| RDONE
+    R8 -->|Still conflicts| R9
+    R9 -->|Yes: retry| R1
+    R9 -->|No| RGIVE
+    RDONE --> A2
+    RGIVE --> A2
+    ARES --> S4
+
+    %% ---------------- Validation layer (not runtime) ----------------
+    subgraph TEST["Validation layer - pytest (offline, not runtime)"]
+        T1["test_pawpal.py<br/>sorting / recurrence / conflict logic"]
+        T2["test_ai_agent.py<br/>agent loop via mocked call_model"]
+    end
+
+    T1 -.->|validates| SCHED
+    T2 -.->|validates| AGENT
