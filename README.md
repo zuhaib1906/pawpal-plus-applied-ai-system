@@ -1,114 +1,273 @@
-# PawPal+ (Module 2 Project)
+# PawPal+ — Applied AI System (Project 4)
 
-You are building **PawPal+**, a Streamlit app that helps a pet owner plan care tasks for their pet.
+## Base Project
 
-## Scenario
+This project extends **PawPal+**, originally built for CodePath AI110 Module 2
+(`ai110-module2show-pawpal-starter`). The original PawPal+ is a rule based pet
+care scheduler. It lets an owner add pets and tasks (walks, feeding, meds,
+grooming), then builds a daily plan by sorting tasks by time and priority,
+fitting them into a time budget, and flagging scheduling conflicts. It has no AI
+in it. Every decision is plain Python logic.
 
-A busy pet owner needs help staying consistent with pet care. They want an assistant that can:
+## Summary
 
-- Track pet care tasks (walks, feeding, meds, enrichment, grooming, etc.)
-- Consider constraints (time available, priority, owner preferences)
-- Produce a daily plan and explain why it chose that plan
+PawPal+ Applied AI System keeps all of that scheduling logic and adds two new
+things: live conflict detection, and an AI agent that can fix conflicts on its
+own. When two tasks overlap, the user can fix it by hand (edit or delete a
+task), or click "Resolve conflicts with AI." That button runs an agent that
+looks up pet care tips, asks Gemini for a new time, applies the fix, and checks
+that the conflict is actually gone. If the AI does not respond properly, the
+agent falls back to a simple, safe rule instead.
 
-Your job is to design the system first (UML), then implement the logic in Python, then connect it to the Streamlit UI.
+## Architecture Overview
 
-## What you will build
+The full system flow is shown as a diagram in
+[`diagrams/architecture.mmd`](diagrams/architecture.mmd). At a high level:
 
-Your final app should:
+1. **UI (`app.py`)**: the user adds, edits, or deletes tasks. These become
+   `Owner`, `Pet`, and `Task` objects.
+2. **Scheduler (`pawpal_system.py`)**: filters tasks, sorts them, fits them into
+   a time budget, and finds conflicts with `find_conflicts()`.
+3. **Conflict branch**: if conflicts exist, the user can fix them by hand
+   (edit/delete) or use the AI agent.
+4. **AI Agent (`ai_agent.py`)**: for each conflict, it does four steps:
+   - **Retrieve**: `find_relevant_tips()` finds helpful tips from
+     `care_tips.md` by matching keywords.
+   - **Plan and act**: it builds a prompt and calls Gemini (`gemini-3.5-flash`)
+     through `call_gemini_model()`, asking for a new start time that does not
+     overlap.
+   - **Fallback**: if the API call fails, or the reply is not a valid time
+     like `HH:MM`, the agent uses a simple backup rule instead (end time plus
+     15 minutes). This is marked `source: fallback`, so it is never confused
+     with a real AI answer.
+   - **Check**: the agent runs `find_conflicts()` again to see if the fix
+     worked. If not, it tries again, up to a set number of attempts, before
+     giving up and reporting that conflict as unresolved.
+5. **Tests (`tests/`)**: `test_pawpal.py` (27 tests) checks the scheduler logic.
+   `test_ai_agent.py` (6 tests) checks the agent using fake AI replies, so the
+   tests run without needing internet or real API calls.
 
-- Let a user enter basic owner + pet info
-- Let a user add/edit tasks (duration + priority at minimum)
-- Generate a daily schedule/plan based on constraints and priorities
-- Display the plan clearly (and ideally explain the reasoning)
-- Include tests for the most important scheduling behaviors
+The class level design (attributes and methods) is in
+[`diagrams/uml_final.mmd`](diagrams/uml_final.mmd) from the original Module 2
+project.
 
-## Getting started
-
-### Setup
+## Setup Instructions
 
 ```bash
+# Clone the repo
+git clone https://github.com/zuhaib1906/pawpal-plus-applied-ai-system.git
+cd pawpal-plus-applied-ai-system
+
+# Create and activate a virtual environment
 python -m venv .venv
 source .venv/bin/activate  # Windows: .venv\Scripts\activate
+
+# Install dependencies
 pip install -r requirements.txt
+
+# Set up your Gemini API key
+cp .env.example .env
+# then edit .env and add your real key:
+# GEMINI_API_KEY=your-key-here
 ```
 
-### Suggested workflow
+You can get a free Gemini API key at
+[aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey).
 
-1. Read the scenario carefully and identify requirements and edge cases.
-2. Draft a UML diagram (classes, attributes, methods, relationships).
-3. Convert UML into Python class stubs (no logic yet).
-4. Implement scheduling logic in small increments.
-5. Add tests to verify key behaviors.
-6. Connect your logic to the Streamlit UI in `app.py`.
-7. Refine UML so it matches what you actually built.
-
-## 🖥️ Sample Output
-
-Paste a sample of your app's CLI or Streamlit output here so a reader can see what a generated plan looks like:
-
-```
-Daily plan for Zuhaib DADA — Monday
-  07:30 — Feed Cat (Milo, 5 min) [priority: medium]
-  08:00 — Morning Walk (Buddy, 30 min) [priority: high]
-  09:00 — Feed Dog (Buddy, 10 min) [priority: medium]
-Scheduled 3 task(s) for Monday, ordered by start time (untimed tasks placed last).
-```
-
-## 🧪 Testing PawPal+
-
+**Run the tests:**
 ```bash
-# Run the full test suite:
 pytest
-
-# Run with coverage:
-pytest --cov
 ```
 
-Sample test output:
+**Run the simple CLI demo:**
+```bash
+python3 main.py
+```
 
+**Run the full app:**
+```bash
+streamlit run app.py
+```
+
+## Sample Interactions
+
+### 1. Core scheduling logic (`python3 main.py`)
+
+```
+All tasks sorted by time (sort_by_time)
+----------------------------------------
+  07:30 — Feed Cat (Rimuru)
+  08:00 — Morning Walk (Filo)
+  08:00 — Give Meds (Filo)
+  09:00 — Feed Dog (Filo)
+  12:00 — Clean Litter (Rimuru)
+  18:00 — Evening Walk (Filo) [done]
+
+Filo's tasks only (filter_tasks by pet)
+----------------------------------------
+  08:00 — Morning Walk
+  08:00 — Give Meds
+  09:00 — Feed Dog
+  18:00 — Evening Walk
+
+Pending tasks only (filter_tasks by status)
+----------------------------------------
+  07:30 — Feed Cat (Rimuru)
+  08:00 — Morning Walk (Filo)
+  08:00 — Give Meds (Filo)
+  09:00 — Feed Dog (Filo)
+  12:00 — Clean Litter (Rimuru)
+
+Full daily plan (generate_schedule)
+----------------------------------------
 Daily plan for Zuhaib DADA — Monday
-  07:30 — Feed Cat (Milo, 5 min) [priority: medium]
-  08:00 — Morning Walk (Buddy, 30 min) [priority: high]
-  09:00 — Feed Dog (Buddy, 10 min) [priority: medium]
-Scheduled 3 task(s) for Monday, ordered by start time (untimed tasks placed last).
+  07:30 — Feed Cat (Rimuru, 5 min) [priority: medium]
+  08:00 — Morning Walk (Filo, 30 min) [priority: high]
+  08:00 — Give Meds (Filo, 5 min) [priority: high]
+  09:00 — Feed Dog (Filo, 10 min) [priority: medium]
+  12:00 — Clean Litter (Rimuru, 10 min) [priority: low]
+Scheduled 5 task(s) for Monday, ordered by start time then priority (untimed
+tasks placed last). Time conflicts detected: Morning Walk and Give Meds both at
+08:00 (same pet).
 
-```
-# Paste your pytest output here
-
-======================================== test session starts =========================================
-platform darwin -- Python 3.13.13, pytest-9.1.1, pluggy-1.6.0
-rootdir: /Users/zuhaibv/Documents/gits/ai110-module2show-pawpal-starter
-plugins: anyio-4.14.0
-collected 17 items                                                                                                 
-
-tests/test_pawpal.py .................                                                       [100%]
-
-========================================= 17 passed in 0.02s =========================================
-
-Confidence Level: ⭐⭐⭐⭐⭐ (5/5 Stars)
-
+Conflict check (conflict_warning)
+----------------------------------------
+⚠️ 1 time conflict: Morning Walk & Give Meds (both at 08:00, same pet)
 ```
 
-## 📐 Smarter Scheduling
+### 2. AI agent fixing a real conflict (Streamlit app)
 
-PawPal+ does more than list your tasks — it organizes the day for you:
+Input: two overlapping tasks for different pets.
 
-| Feature | What it does for you |
-|---------|----------------------|
-| **Time Sorting** | Arranges tasks earliest to latest. Untimed tasks go to the bottom; tasks at the same time are ordered by priority (high first). |
-| **Pet Filtering** | Show just one pet's tasks, or hide the ones you've already finished. |
-| **Time Budget** | Set how many minutes you have, and PawPal+ keeps your most important tasks first, setting the rest aside. |
-| **Conflict Alerts** | Warns you when two tasks overlap or start at the same time, and whether it's the same pet or different pets. |
-| **Recurring Tasks** | Mark a task daily or weekly. Finish one and the next is scheduled automatically — tomorrow for daily, next week for weekly. |
-| **Plan Explanation** | Every schedule comes with a short summary of what was planned, what got deferred, and any conflicts found. |
-| **Task Management** | Add tasks, edit their time/duration/priority, mark them done, or delete them. |
-| **Pet Management** | Add pets, update their details, or remove them — each pet keeps its own task list. |
+```
+08:00 — Morning walk (Mochi, 20 min, High)
+08:20 — Morning walk (Rimuru, 26 min, High)   ← overlaps Mochi's walk
+```
 
-## 📸 Demo Walkthrough
+Clicking "Resolve conflicts with AI":
 
-1. Enter the owner name (e.g. "Jordan").
-2. Type a pet name ("Mochi") and click Add pet.
-3. Fill in a task ("Morning walk", 20 min, high, 08:00), select Mochi, and click Add task.
-4. Add a few more tasks — they appear in the Current tasks table, already sorted by time.
-5. Use the pet/status filters to narrow the view (e.g. just Mochi's pending tasks).
-6. Set the day to "Monday" and click Generate schedule to see today's ordered plan, conflict check, and reasoning.
+```
+🤖 AI conflict resolution
+moved Morning walk to 08:20 — AI decision; resolved ✅
+```
+
+The prompt sent to Gemini includes the conflicting tasks' names, pet names,
+start times, durations, and any related tips found in `care_tips.md`. Gemini
+gave back a valid new start time, which was applied and checked to confirm the
+conflict was gone.
+
+### 3. Clean schedule with no conflicts (Streamlit app)
+
+Input: four tasks that do not overlap, across two pets.
+
+```
+08:00 — Morning walk (Mochi, 20 min, High)
+08:20 — Morning walk (Rimuru, 26 min, High)
+09:00 — Meds (Rimuru, 5 min, High)
+09:10 — Play time (Mochi, 15 min, High)
+```
+
+Clicking "Generate schedule":
+
+```
+📅 Daily plan for Jordan — Monday
+Scheduled tasks: 4
+Planned time: 66 min
+
+08:00 — Morning walk — Mochi — 20 min — High
+08:20 — Morning walk — Rimuru — 26 min — High
+09:00 — Meds — Rimuru — 5 min — High
+09:10 — Play time — Mochi — 15 min — High
+
+No time conflicts. ✅
+Scheduled 4 task(s) for Monday, ordered by start time then priority (untimed
+tasks placed last).
+```
+
+## Design Decisions and Trade-offs
+
+- **Warn, but do not block, when a conflict is created.** If a user adds or
+  edits a task that overlaps another one, the app shows a warning but still
+  saves the task. In real life, a pet owner sometimes needs two things to
+  happen at the same time. Blocking that outright felt too strict.
+
+- **Keyword matching instead of embeddings for retrieval.** `find_relevant_tips()`
+  matches keywords between task names and lines in `care_tips.md`. With only
+  about 8 short tips, a full embedding search would add complexity without
+  really making the results better.
+
+- **A safe fallback, always.** If Gemini fails, or its answer is not a valid
+  time, the agent uses a fixed backup rule (end time plus 15 minutes) instead
+  of leaving the conflict unresolved. Every result is marked `source: "ai"` or
+  `source: "fallback"`, so it is always clear which one made the decision. This
+  mattered a lot after we found, during testing, that a missing package was
+  silently making every single fix use the fallback path (more on this below).
+
+- **A retry limit (`max_attempts=2`) for each conflict.** The agent checks its
+  own work and tries again if a fix does not work, but it stops after a set
+  number of tries so it cannot get stuck trying forever. If it cannot fix a
+  conflict, it reports that clearly instead of looping.
+
+- **Task IDs instead of matching by name.** At first, editing and deleting
+  tasks matched by `task_name`. This broke once a recurring task could create
+  a second task with the same name. Now every `Task` gets its own unique
+  `task_id` (a UUID), so edits and deletes are never ambiguous, even when two
+  tasks share a name.
+
+## Testing Summary
+
+**Automated tests: 33 out of 33 passing.** 27 tests check the core scheduler,
+and 6 tests check the AI agent loop. All tests run offline, since the agent
+tests use a fake AI reply instead of a real API call.
+
+```
+...................................                                    [100%]
+33 passed in 0.03s
+```
+
+**What worked well:**
+- The core scheduling logic (sorting, recurring tasks, time budgets, conflict
+  detection) has stayed reliable since Module 2 and did not need any changes.
+- The fallback rule keeps the app working even when the AI call fails, so the
+  feature never leaves the user stuck.
+- The retry and give up logic was tested with a fake AI that always proposes
+  overlapping times. It correctly gives up after 2 tries instead of looping
+  forever.
+
+**What did not work at first, and what we learned:**
+- During live testing, every single fix showed `source: "fallback"`, even
+  though the code that called Gemini looked correct. After some digging, we
+  found two separate problems. First, the new packages
+  (`google-generativeai` and `python-dotenv`) were listed in
+  `requirements.txt` but were never actually installed in the virtual
+  environment that was running the app. This made the import fail quietly,
+  and the failure was caught by the fallback's error handling, so it never
+  showed up as an error. Second, once that was fixed, the model name we were
+  using (`gemini-1.5-flash`) turned out to be retired and gave a 404 error.
+  Switching to `gemini-3.5-flash` fixed it. The lesson here: a good fallback
+  can hide a real bug if you do not also check that the main path is actually
+  being used.
+- A smaller near miss: an early version of `.env.example` briefly had a real
+  API key in it instead of a placeholder. It was caught before it was
+  committed, and the key was replaced right away just to be safe.
+
+**Confidence: 4.5 out of 5 stars.** The scheduler logic is fully trusted. The
+AI agent works well end to end, but like any feature that depends on an LLM,
+its answers can vary a little from call to call, which is exactly why the
+fallback rule exists as a safety net.
+
+## Reflection
+
+This project taught me that adding AI to a working system is not just about
+calling an API. Most of the real work was in the parts around the call: what
+happens when it fails, how to know if its answer is trustworthy, and how to
+test that logic without needing a live connection every time. The clearest
+lesson came from a real bug during testing, where every AI resolution was
+quietly using the fallback rule instead of a real answer. It took real
+debugging to trace it back to two small issues (a missing package and a
+retired model name), and it showed me that "it didn't crash" is not the same
+as "it's working correctly."
+
+
+See [`model_card.md`](model_card.md) for the graded reflection on working with
+AI, responsible AI choices, and the system's limits.

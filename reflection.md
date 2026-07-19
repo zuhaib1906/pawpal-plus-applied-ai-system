@@ -110,11 +110,14 @@ I also added start_time and recurrence fields to Task so the system can support 
 **a. What went well**
 
 - What part of this project are you most satisfied with?
+--> The scheduler's core logic (sorting, conflict detection, recurring tasks) turned out solid enough that I could build directly on top of it for Project 4 without needing to touch it. When I later added task IDs, input validation, and a live conflicts UI, all 27 original tests kept passing without changes, which told me the original design held up. I'm also glad I added a real AI agent on top of it for Project 4 (an agentic conflict resolver using Gemini) instead of just a surface-level AI feature. It actually reads the scheduler's own conflict output, retrieves relevant care tips, proposes a fix, and checks its own work by re-running the conflict check, so it's genuinely integrated into the app's logic rather than a bolted-on script.
 
 **b. What you would improve**
 
 - If you had another iteration, what would you improve or redesign?
+--> I'd add persistence (the app still loses everything on refresh) and give tasks a concept of "how movable" they are, since right now the AI agent treats a meds task and a play-time task as equally easy to reschedule, which isn't realistic for pet care. I'd also replace the keyword-based tip retrieval in Project 4 with a proper embedding search if the tips file ever grew past a handful of entries, since keyword matching only works because the tip set is still small.
 
 **c. Key takeaway**
 
 - What is one important thing you learned about designing systems or working with AI on this project?
+--> The biggest lesson came from Project 4: a fallback safety net can quietly hide a real bug. My AI agent was silently using its fallback rule instead of calling Gemini for a while, and nothing crashed, so it looked like it was "working." It took real debugging, not guessing, to trace it back to a missing dependency and a retired model name. That taught me that in AI-integrated systems, "it didn't crash" and "it's actually working as intended" are two different things, and a system needs a way to tell you which one is true.
