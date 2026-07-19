@@ -256,6 +256,29 @@ AI agent works well end to end, but like any feature that depends on an LLM,
 its answers can vary a little from call to call, which is exactly why the
 fallback rule exists as a safety net.
 
+### Reliability Evaluation (Human-Verified Scenarios)
+
+In addition to the 33 automated tests, the table below records manual test
+runs against the live app, so the results can be read without watching a demo.
+
+| Test Input | Evaluation Criteria | Result |
+|---|---|---|
+| 2 tasks, same pet, overlapping times, valid Gemini response | Agent proposes a non-overlapping time and marks `source: "ai"` | Pass |
+| Gemini call fails (missing dependency, pre-fix) | Agent falls back to the +15 min rule instead of crashing, marks `source: "fallback"` | Pass |
+| Gemini returns text that is not a valid `HH:MM` time (unit test, mocked) | Agent rejects the response and uses the fallback rule | Pass |
+| Fake model that always proposes an overlapping time (unit test, mocked) | Agent retries up to `max_attempts`, then gives up and reports `resolved: False` instead of looping forever | Pass |
+| 7 tasks, all overlapping at once (18 simultaneous conflicts) | App does not crash; badge and conflict list render correctly; agent resolves most conflicts | Pass |
+| A completed task overlapping a pending task | Not counted as a conflict, since the completed task already happened | Pass |
+| Task with an unparseable start time, e.g. `"not-a-time"` (unit test) | Sorts to the end of the list instead of crashing | Pass |
+| Two tasks not involved in any conflict, agent runs on an unrelated conflict elsewhere | Untouched tasks are not modified by the agent (unit test, fake model raises if ever called on them) | Pass |
+
+All 8 scenarios above passed. The one real failure found during development
+(every resolution silently using the fallback rule instead of a real AI call)
+was caught through this same kind of manual verification, not by the
+automated test suite, since the automated tests use a mocked model and would
+not have revealed a real integration bug. That is recorded in the "What did
+not work at first" notes above.
+
 ## Reflection
 
 This project taught me that adding AI to a working system is not just about
@@ -268,6 +291,6 @@ debugging to trace it back to two small issues (a missing package and a
 retired model name), and it showed me that "it didn't crash" is not the same
 as "it's working correctly."
 
-
-See [`model_card.md`](model_card.md) for the graded reflection on working with
-AI, responsible AI choices, and the system's limits.
+For the graded responsible-AI reflection, including specific examples of
+helpful and flawed AI suggestions during development, see
+[`model_card.md`](model_card.md).
