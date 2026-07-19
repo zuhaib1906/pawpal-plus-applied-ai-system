@@ -1,4 +1,6 @@
 import streamlit as st
+
+import ai_agent
 from pawpal_system import Owner, Pet, Task, Scheduler
 
 st.set_page_config(page_title="PawPal+", page_icon="🐾", layout="centered")
@@ -234,9 +236,29 @@ if owner.all_tasks():
         plural = "s" if len(all_conflicts) != 1 else ""
         with st.expander(f"⚠️ {len(all_conflicts)} time conflict{plural} — review", expanded=True):
             st.caption(
-                "These tasks overlap. Edit or delete either one, or leave them "
-                "as-is to keep both."
+                "These tasks overlap. Edit or delete either one, leave them "
+                "as-is to keep both, or let the AI agent reschedule them."
             )
+
+            # AI agent: reschedule the later task in each conflict. Uses the day
+            # set in Build Schedule below (defaults to Monday before it's touched).
+            resolve_day = st.session_state.get("day", "Monday")
+            if st.button("🤖 Resolve conflicts with AI", key="ai_resolve"):
+                try:
+                    outcomes = ai_agent.resolve_conflicts(owner, resolve_day)
+                    if not outcomes:
+                        lines = ["No conflicts to resolve."]
+                    else:
+                        lines = []
+                        for outcome in outcomes:
+                            src = "AI decision" if outcome["source"] == "ai" else "fallback rule (+15 min)"
+                            status = "resolved ✅" if outcome["resolved"] else "still conflicting ❌"
+                            lines.append(f"{outcome['action']} — {src}; {status}")
+                    st.session_state["ai_results"] = lines
+                    st.rerun()
+                except Exception as err:  # network/API failure — never crash the app
+                    st.error(f"AI conflict resolution failed: {err}")
+
             for i, conflict in enumerate(all_conflicts):
                 first, second = conflict["first"], conflict["second"]
                 st.markdown(f"**{i + 1}.** {_describe_conflict(conflict)}")
@@ -258,6 +280,14 @@ if owner.all_tasks():
                     if pet is not None:
                         pet.delete_task(second.task_id)
                     st.rerun()
+
+    # Outcome of the last AI resolution run (rendered outside the expander so it
+    # stays visible even after the conflicts it fixed have disappeared).
+    ai_results = st.session_state.pop("ai_results", None)
+    if ai_results:
+        st.markdown("**🤖 AI conflict resolution**")
+        for line in ai_results:
+            st.write(f"- {line}")
 
     # ------------------------------------------------------------------
     # Manage a task: mark complete, edit time/duration/priority, or delete.
@@ -354,7 +384,7 @@ st.divider()
 st.subheader("Build Schedule")
 st.caption("Generates a daily plan from all tasks, sorted by start time.")
 
-day = st.text_input("Day", value="Monday")
+day = st.text_input("Day", value="Monday", key="day")
 
 if st.button("Generate schedule"):
     scheduled = scheduler.generate_schedule(day)
