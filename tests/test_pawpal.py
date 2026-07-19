@@ -6,6 +6,8 @@ import sys
 # Make the project root importable when running pytest from anywhere.
 sys.path.insert(0, os.path.dirname(os.path.dirname(__file__)))
 
+import pytest
+
 from pawpal_system import Owner, Pet, Task, Scheduler
 
 
@@ -218,3 +220,116 @@ def test_conflict_different_pets_flagged_as_different():
 
     assert len(conflicts) == 1
     assert conflicts[0]["same_pet"] is False
+
+
+# ---------------------------------------------------------------------------
+# Task Identity
+# ---------------------------------------------------------------------------
+
+def test_every_task_gets_a_unique_id():
+    """Two tasks with the same name still get distinct ids."""
+    a = Task("Walk", "Filo", 20, "high", "08:00")
+    b = Task("Walk", "Filo", 20, "high", "08:00")
+
+    assert a.task_id != b.task_id
+
+
+def test_next_occurrence_has_fresh_id():
+    """A recurring task's next occurrence does not reuse the original's id."""
+    task = Task("Walk", "Filo", 20, "high", "08:00", recurrence="weekly", day="Monday")
+
+    nxt = task.next_occurrence()
+
+    assert nxt is not None
+    assert nxt.task_id != task.task_id
+
+
+def test_edit_task_affects_only_the_matching_id():
+    """Editing one task in a same-name pair leaves the other untouched."""
+    pet = Pet("Filo", "Sam")
+    done = Task("Walk", "Filo", 20, "high", "08:00", completed=True)
+    pending = Task("Walk", "Filo", 20, "high", "18:00")
+    pet.add_task(done)
+    pet.add_task(pending)
+
+    pet.edit_task(pending.task_id, priority="low")
+
+    assert pending.priority == "low"
+    assert done.priority == "high"  # the same-named sibling is unchanged
+
+
+def test_delete_task_removes_only_the_matching_id():
+    """Deleting one task in a same-name pair keeps the other."""
+    pet = Pet("Filo", "Sam")
+    done = Task("Walk", "Filo", 20, "high", "08:00", completed=True)
+    pending = Task("Walk", "Filo", 20, "high", "18:00")
+    pet.add_task(done)
+    pet.add_task(pending)
+
+    pet.delete_task(done.task_id)
+
+    assert pet.tasks == [pending]
+
+
+# ---------------------------------------------------------------------------
+# Input Validation
+# ---------------------------------------------------------------------------
+
+def test_invalid_priority_is_rejected():
+    """Creating a task with an unknown priority raises instead of defaulting."""
+    with pytest.raises(ValueError):
+        Task("Walk", "Filo", 20, "urgent", "08:00")
+
+
+def test_non_positive_duration_is_rejected():
+    """Zero or negative durations are rejected at creation."""
+    with pytest.raises(ValueError):
+        Task("Walk", "Filo", 0, "high", "08:00")
+    with pytest.raises(ValueError):
+        Task("Walk", "Filo", -5, "high", "08:00")
+
+
+def test_edit_task_rejects_invalid_values():
+    """Editing a task to an invalid priority or duration raises."""
+    pet = Pet("Filo", "Sam")
+    task = Task("Walk", "Filo", 20, "high", "08:00")
+    pet.add_task(task)
+
+    with pytest.raises(ValueError):
+        pet.edit_task(task.task_id, priority="whenever")
+    with pytest.raises(ValueError):
+        pet.edit_task(task.task_id, duration=0)
+
+
+def test_set_duration_and_priority_validates():
+    """set_duration_and_priority rejects invalid input."""
+    task = Task("Walk", "Filo", 20, "high", "08:00")
+
+    with pytest.raises(ValueError):
+        task.set_duration_and_priority(-1, "high")
+    with pytest.raises(ValueError):
+        task.set_duration_and_priority(10, "nope")
+
+
+def test_failed_edit_leaves_task_untouched():
+    """A rejected edit_task() applies none of its changes (atomic validation)."""
+    task = Task("Walk", "Filo", 20, "high", "08:00")
+
+    # A valid duration paired with an invalid priority in the same call.
+    with pytest.raises(ValueError):
+        task.edit_task(duration=45, priority="urgent")
+
+    # The whole call failed, so the original values must survive.
+    assert task.duration == 20
+    assert task.priority == "high"
+
+
+def test_failed_set_duration_and_priority_leaves_task_untouched():
+    """A rejected set_duration_and_priority() changes neither field."""
+    task = Task("Walk", "Filo", 20, "high", "08:00")
+
+    with pytest.raises(ValueError):
+        task.set_duration_and_priority(45, "urgent")
+
+    assert task.duration == 20
+    assert task.priority == "high"

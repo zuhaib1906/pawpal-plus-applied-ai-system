@@ -5,7 +5,11 @@ Beginner-friendly implementation; no Streamlit code yet.
 """
 
 import datetime
+import uuid
 from dataclasses import dataclass, field
+
+# Allowed task priority labels. Anything else is rejected at creation/edit time.
+VALID_PRIORITIES = ("low", "medium", "high")
 
 
 @dataclass
@@ -20,18 +24,60 @@ class Task:
     recurrence: str = "once"  # "once" / "daily" / "weekly"
     day: str | None = None  # weekday this task is anchored to, e.g. "Monday"
     completed: bool = False  # whether the task has been done
+    # Stable, unique identity so same-named tasks can be told apart. Auto-generated;
+    # placed last so positional construction (Task(name, pet, dur, pri, ...)) is unaffected.
+    task_id: str = field(default_factory=lambda: uuid.uuid4().hex)
+
+    def __post_init__(self) -> None:
+        """Validate the task's fields as soon as it is created."""
+        self._validate()
+
+    def _validate(self) -> None:
+        """Validate this task's current field values."""
+        self._check_fields(self.duration, self.priority)
+
+    @staticmethod
+    def _check_fields(duration: int, priority: str) -> None:
+        """Ensure duration is a positive integer and priority is a known label.
+
+        Raises ValueError on invalid input instead of silently defaulting, so
+        callers learn about bad data at the point it is introduced. Static so
+        proposed values can be checked before they are applied to any object.
+        """
+        if not isinstance(duration, int) or duration <= 0:
+            raise ValueError(
+                f"duration must be a positive integer (minutes), got {duration!r}"
+            )
+        if priority not in VALID_PRIORITIES:
+            raise ValueError(
+                f"priority must be one of {VALID_PRIORITIES}, got {priority!r}"
+            )
 
     def mark_complete(self) -> None:
         """Mark this task as completed."""
         self.completed = True
 
     def set_duration_and_priority(self, duration: int, priority: str) -> None:
-        """Set this task's duration and priority."""
+        """Set this task's duration and priority (validated atomically).
+
+        Both values are checked before either is applied, so a rejected call
+        leaves the task completely unchanged.
+        """
+        self._check_fields(duration, priority)
         self.duration = duration
         self.priority = priority
 
     def edit_task(self, **changes) -> None:
-        """Update one or more of this task's fields."""
+        """Update one or more of this task's fields (validated atomically).
+
+        The proposed duration/priority are checked before any change is
+        applied, so a rejected edit leaves the task completely untouched
+        (no partial mutation).
+        """
+        proposed_duration = changes.get("duration", self.duration)
+        proposed_priority = changes.get("priority", self.priority)
+        self._check_fields(proposed_duration, proposed_priority)
+
         for field_name, value in changes.items():
             if hasattr(self, field_name):
                 setattr(self, field_name, value)
@@ -40,7 +86,9 @@ class Task:
         """Build the next occurrence of this task, or None if it doesn't repeat.
 
         Daily tasks become due today + 1 day; weekly tasks recur on the same
-        weekday next week. The new task starts incomplete.
+        weekday next week. The new task starts incomplete and gets its own
+        fresh task_id (task_id is not copied), so it never collides with the
+        original occurrence.
         """
         if self.recurrence not in ("daily", "weekly"):
             return None
@@ -90,16 +138,16 @@ class Pet:
         """Attach a task to this pet."""
         self.tasks.append(task)
 
-    def edit_task(self, task_name: str, **changes) -> None:
-        """Update a task belonging to this pet (matched by name)."""
+    def edit_task(self, task_id: str, **changes) -> None:
+        """Update a task belonging to this pet (matched by unique id)."""
         for task in self.tasks:
-            if task.task_name == task_name:
+            if task.task_id == task_id:
                 task.edit_task(**changes)
                 return
 
-    def delete_task(self, task_name: str) -> None:
-        """Remove a task from this pet (matched by name)."""
-        self.tasks = [task for task in self.tasks if task.task_name != task_name]
+    def delete_task(self, task_id: str) -> None:
+        """Remove a task from this pet (matched by unique id)."""
+        self.tasks = [task for task in self.tasks if task.task_id != task_id]
 
 
 @dataclass
